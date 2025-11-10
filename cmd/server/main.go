@@ -3,9 +3,8 @@ package main
 import (
     "fmt"
     "log/slog"
-    "os"
-    "os/signal"
 
+    "github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
     "github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
     "github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
     amqp "github.com/rabbitmq/amqp091-go"
@@ -21,7 +20,7 @@ func main() {
     }
     defer func(connection *amqp.Connection) {
         err := connection.Close()
-        fmt.Println("program is shutting down ")
+        fmt.Println("server is shutting down")
         if err != nil {
             slog.Error(err.Error())
         }
@@ -35,13 +34,61 @@ func main() {
         return
     }
 
-    err = pubsub.PublishJSON(channel, routing.ExchangePerilDirect,
-        routing.PauseKey, routing.PlayingState{
-            IsPaused: true,
-        })
+    _, _, err = pubsub.DeclareAndBind(
+        connection,
+        "peril_topic",
+        "game_logs",
+        "game_logs.*",
+        pubsub.Durable)
+    if err != nil {
+        slog.Error(err.Error())
+        return
+    }
 
-    // wait for ctrl+c
-    signalChan := make(chan os.Signal, 1)
-    signal.Notify(signalChan, os.Interrupt)
-    <-signalChan
+    gamelogic.PrintServerHelp()
+
+    for {
+        input := gamelogic.GetInput()
+        if len(input) == 0 {
+            continue
+        }
+
+        command := input[0]
+        switch command {
+        case "pause":
+            fmt.Println("sending a pause message")
+            err = pubsub.PublishJSON(
+                channel,
+                routing.ExchangePerilDirect,
+                routing.PauseKey,
+                routing.PlayingState{
+                    IsPaused: true,
+                })
+            if err != nil {
+                slog.Error(err.Error())
+                return
+            }
+
+        case "resume":
+            fmt.Println("sending a resume message")
+            err = pubsub.PublishJSON(
+                channel,
+                routing.ExchangePerilDirect,
+                routing.PauseKey,
+                routing.PlayingState{
+                    IsPaused: false,
+                })
+            if err != nil {
+                slog.Error(err.Error())
+                return
+            }
+
+        case "quit":
+            fmt.Println("exiting...")
+            break
+
+        default:
+            fmt.Println("unknown command")
+        }
+    }
 }
