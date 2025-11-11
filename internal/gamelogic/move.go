@@ -61,7 +61,7 @@ func (gs *GameState) CommandMove(words []string) (ArmyMove, error) {
 	if _, ok := locations[newLocation]; !ok {
 		return ArmyMove{}, fmt.Errorf("error: %s is not a valid location", newLocation)
 	}
-	unitIDs := []int{}
+	var unitIDs []int
 	for _, word := range words[2:] {
 		id := word
 		unitID, err := strconv.Atoi(id)

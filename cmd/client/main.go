@@ -26,6 +26,12 @@ func main() {
 		}
 	}(connection)
 
+	channel, err := connection.Channel()
+	if err != nil {
+		slog.Error(err.Error())
+		return
+	}
+
 	fmt.Println("connected successfully")
 
 	username, err := gamelogic.ClientWelcome()
@@ -45,6 +51,29 @@ func main() {
 	}
 
 	gameState := gamelogic.NewGameState(username)
+	err = pubsub.SubscribeJSON(
+		connection,
+		routing.ExchangePerilDirect,
+		fmt.Sprintf("%s.%s", routing.PauseKey, username),
+		routing.PauseKey,
+		pubsub.Transient,
+		handlerPause(gameState))
+	if err != nil {
+		slog.Error(err.Error())
+		return
+	}
+
+	err = pubsub.SubscribeJSON(
+		connection,
+		routing.ExchangePerilTopic,
+		fmt.Sprintf("%s.%s", routing.ArmyMovesPrefix, username),
+		fmt.Sprintf("%s.*", routing.ArmyMovesPrefix),
+		pubsub.Transient,
+		handlerMove(gameState))
+	if err != nil {
+		slog.Error(err.Error())
+		return
+	}
 
 	for {
 		input := gamelogic.GetInput()
@@ -58,15 +87,27 @@ func main() {
 			err := gameState.CommandSpawn(input)
 			if err != nil {
 				slog.Error(err.Error())
-				return
+				continue
 			}
 
 		case "move":
-			_, err := gameState.CommandMove(input)
+			move, err := gameState.CommandMove(input)
 			if err != nil {
 				slog.Error(err.Error())
-				return
+				continue
 			}
+
+			err = pubsub.PublishJSON(
+				channel,
+				routing.ExchangePerilTopic,
+				fmt.Sprintf("%s.%s", routing.ArmyMovesPrefix, username),
+				move)
+			if err != nil {
+				slog.Error(err.Error())
+				continue
+			}
+
+			fmt.Println("move published successfully")
 
 		case "status":
 			gameState.CommandStatus()
