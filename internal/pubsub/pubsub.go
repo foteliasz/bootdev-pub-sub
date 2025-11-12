@@ -127,13 +127,36 @@ func DeclareAndBind(
 	return channel, queue, nil
 }
 
-func SubscribeJSON[T any](
+func JSONDecoder[T any](data []byte) (T, error) {
+	var object T
+	err := json.Unmarshal(data, &object)
+	if err != nil {
+		slog.Error(err.Error())
+		return object, err
+	}
+	return object, nil
+}
+
+func GobDecoder[T any](data []byte) (T, error) {
+	var object T
+	buf := bytes.NewBuffer(data)
+	dec := gob.NewDecoder(buf)
+	err := dec.Decode(&object)
+	if err != nil {
+		slog.Error(err.Error())
+		return object, err
+	}
+	return object, nil
+}
+
+func Subscribe[T any](
 	conn *amqp.Connection,
-	exchange string,
-	queueName string,
+	exchange,
+	queueName,
 	key string,
 	queueType SimpleQueueType,
 	handler func(T) AckType,
+	decoder func([]byte) (T, error),
 ) error {
 	amqpChannel, queue, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
 	if err != nil {
@@ -149,8 +172,7 @@ func SubscribeJSON[T any](
 
 	go func() {
 		for delivery := range channel {
-			var object T
-			err := json.Unmarshal(delivery.Body, &object)
+			object, err := decoder(delivery.Body)
 			if err != nil {
 				slog.Error(err.Error())
 				return

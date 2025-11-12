@@ -45,6 +45,19 @@ func main() {
 		return
 	}
 
+	err = pubsub.Subscribe(
+		connection,
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug,
+		fmt.Sprintf("%s.*", routing.GameLogSlug),
+		pubsub.Durable,
+		handlerLog(),
+		pubsub.GobDecoder)
+	if err != nil {
+		slog.Error(err.Error())
+		return
+	}
+
 	gamelogic.PrintServerHelp()
 
 	for {
