@@ -36,9 +36,9 @@ func main() {
 
 	_, _, err = pubsub.DeclareAndBind(
 		connection,
-		"peril_topic",
-		"game_logs",
-		"game_logs.*",
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug,
+		fmt.Sprintf("%s.*", routing.GameLogSlug),
 		pubsub.Durable)
 	if err != nil {
 		slog.Error(err.Error())

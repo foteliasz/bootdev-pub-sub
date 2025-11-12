@@ -5,14 +5,22 @@ import (
     "encoding/json"
     "log/slog"
 
+    "github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
     amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type SimpleQueueType int
+type AckType int
 
 const (
     Durable SimpleQueueType = iota
     Transient
+)
+
+const (
+    Ack AckType = iota
+    NackRequeue
+    NackDiscard
 )
 
 func PublishJSON[T any](ch *amqp.Channel, exchange, key string, val T) error {
@@ -48,13 +56,15 @@ func DeclareAndBind(
         return nil, amqp.Queue{}, err
     }
 
+    table := amqp.Table{}
+    table["x-dead-letter-exchange"] = routing.ExchangePerilFanout
     queue, err := channel.QueueDeclare(
         queueName,
         queueType == Durable,
         queueType == Transient,
         queueType == Transient,
         false,
-        nil)
+        table)
     if err != nil {
         slog.Error(err.Error())
         return nil, amqp.Queue{}, err
@@ -80,7 +90,7 @@ func SubscribeJSON[T any](
     queueName string,
     key string,
     queueType SimpleQueueType,
-    handler func(T),
+    handler func(T) AckType,
 ) error {
     amqpChannel, queue, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
     if err != nil {
@@ -103,11 +113,31 @@ func SubscribeJSON[T any](
                 return
             }
 
-            handler(object)
-            err = delivery.Ack(false)
-            if err != nil {
-                slog.Error(err.Error())
-                return
+            ackType := handler(object)
+            switch ackType {
+            case Ack:
+                err = delivery.Ack(false)
+                slog.Info("message acknowledged")
+                if err != nil {
+                    slog.Error(err.Error())
+                    return
+                }
+
+            case NackRequeue:
+                err = delivery.Nack(false, true)
+                slog.Info("message not acknowledged, queuing again")
+                if err != nil {
+                    slog.Error(err.Error())
+                    return
+                }
+
+            case NackDiscard:
+                err = delivery.Nack(false, false)
+                slog.Info("message not acknowledged, discarding")
+                if err != nil {
+                    slog.Error(err.Error())
+                    return
+                }
             }
         }
     }()
